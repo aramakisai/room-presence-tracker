@@ -1,0 +1,32 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: presence-midnight-reset
+  namespace: room-presence
+spec:
+  # 深夜0時 JST = UTC 15:00
+  schedule: "0 15 * * *"
+  timeZone: "Asia/Tokyo"  # Kubernetes 1.27+ supports timeZone
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: reset
+              image: curlimages/curl:8.5.0
+              command:
+                - sh
+                - -c
+                - |
+                  curl -sf -X POST \
+                    -H "Authorization: Bearer ${RESET_SECRET}" \
+                    "${APP_URL}/api/presence/reset"
+              env:
+                - name: APP_URL
+                  value: "http://room-presence-svc.room-presence.svc.cluster.local:3000"
+                - name: RESET_SECRET
+                  valueFrom:
+                    secretKeyRef:
+                      name: presence-secrets
+                      key: RESET_SECRET
