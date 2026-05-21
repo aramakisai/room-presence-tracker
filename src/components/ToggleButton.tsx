@@ -3,6 +3,8 @@
 import { useState, useTransition } from "react";
 import { Button } from "@/components/ui/button";
 import { useRouter } from "next/navigation";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { faArrowRightToBracket, faArrowRightFromBracket } from "@fortawesome/free-solid-svg-icons";
 
 interface ToggleButtonProps {
   initialIsPresent: boolean;
@@ -32,11 +34,19 @@ export function ToggleButton({ initialIsPresent }: ToggleButtonProps) {
       disabled={isPending}
       className="w-full text-base font-semibold py-6"
     >
-      {isPending
-        ? "処理中…"
-        : isPresent
-        ? "🔴 退室する"
-        : "🟢 在室する"}
+      {isPending ? (
+        "処理中…"
+      ) : isPresent ? (
+        <>
+          <FontAwesomeIcon icon={faArrowRightFromBracket} className="mr-2" />
+          退室する
+        </>
+      ) : (
+        <>
+          <FontAwesomeIcon icon={faArrowRightToBracket} className="mr-2" />
+          在室する
+        </>
+      )}
     </Button>
   );
 }

@@ -1,6 +1,14 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback } from "react";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import {
+  faArrowRightToBracket,
+  faArrowRightFromBracket,
+  faLightbulb,
+  faTriangleExclamation,
+  faCircleXmark,
+} from "@fortawesome/free-solid-svg-icons";
 import { BrowserMultiFormatReader, BrowserCodeReader } from "@zxing/browser";
 import type { IScannerControls } from "@zxing/browser";
 import { DecodeHintType, BarcodeFormat, NotFoundException } from "@zxing/library";
@@ -25,7 +33,6 @@ export function BarcodeScanner() {
   const [scanning, setScanning] = useState(false);
   const [torchOn, setTorchOn] = useState(false);
   const [torchAvailable, setTorchAvailable] = useState(false);
-  const [showManual, setShowManual] = useState(false);
   const [manualInput, setManualInput] = useState("");
   const [result, setResult] = useState<ScanResult>(null);
   const [scanError, setScanError] = useState<ScanError>(null);
@@ -36,16 +43,18 @@ export function BarcodeScanner() {
 
   // Stable function — reads only refs, no state deps
   const handleScannedCode = useCallback(async (studentId: string) => {
-    if (cooldownRef.current || studentId === lastScannedRef.current) return;
+    // Normalize to lowercase so barcode (uppercase) and manual input match consistently
+    const normalizedId = studentId.trim().toLowerCase();
+    if (cooldownRef.current || normalizedId === lastScannedRef.current) return;
     cooldownRef.current = true;
-    lastScannedRef.current = studentId;
+    lastScannedRef.current = normalizedId;
     setScanError(null);
 
     try {
       const res = await fetch("/api/presence/kiosk-toggle", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ studentId }),
+        body: JSON.stringify({ studentId: normalizedId }),
       });
       if (res.status === 404) {
         setScanError("not_found");
@@ -55,10 +64,18 @@ export function BarcodeScanner() {
         setResult({ name: data.name, isPresent: data.isPresent });
         setScanError(null);
       } else {
+        // Log the full error response so it appears in the browser console
+        const body = await res.text().catch(() => "(could not read body)");
+        console.error(
+          `[kiosk-toggle] HTTP ${res.status} for studentId="${studentId}":`,
+          body
+        );
         setScanError("error");
         setResult(null);
       }
-    } catch {
+    } catch (err) {
+      // Network-level failure (no connection, CORS, etc.)
+      console.error(`[kiosk-toggle] fetch threw for studentId="${studentId}":`, err);
       setScanError("error");
       setResult(null);
     }
@@ -172,7 +189,6 @@ export function BarcodeScanner() {
       if (id) {
         handleScannedCode(id);
         setManualInput("");
-        setShowManual(false);
       }
     },
     [manualInput, handleScannedCode]
@@ -202,7 +218,8 @@ export function BarcodeScanner() {
             className="absolute bottom-3 right-3 rounded-full bg-black/60 px-3 py-1.5 text-sm text-white backdrop-blur"
             aria-label={torchOn ? "ライトをOFFにする" : "ライトをONにする"}
           >
-            {torchOn ? "🔦 ON" : "🔦 OFF"}
+            <FontAwesomeIcon icon={faLightbulb} className="mr-1" />
+            {torchOn ? "ON" : "OFF"}
           </button>
         )}
 
@@ -217,62 +234,68 @@ export function BarcodeScanner() {
         学生証のバーコードをカメラにかざしてください
       </p>
 
-      {/* Manual input fallback */}
-      <button
-        onClick={() => setShowManual((v) => !v)}
-        className="text-xs text-gray-500 underline underline-offset-2"
-      >
-        読み取れない場合は手動入力
-      </button>
-
-      {showManual && (
-        <form onSubmit={handleManualSubmit} className="flex w-full gap-2">
-          <input
-            type="text"
-            inputMode="numeric"
-            value={manualInput}
-            onChange={(e) => setManualInput(e.target.value)}
-            placeholder="学籍番号を入力"
-            className="flex-1 rounded-lg border border-gray-600 bg-gray-800 px-3 py-2 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-white/40"
-            autoFocus
-          />
-          <button
-            type="submit"
-            className="rounded-lg bg-white px-4 py-2 font-bold text-black"
-          >
-            送信
-          </button>
-        </form>
-      )}
-
-      {/* Feedback */}
-      {result && (
-        <div
-          className={`w-full rounded-xl p-6 text-center transition-all ${
-            result.isPresent ? "bg-green-500 text-white" : "bg-red-500 text-white"
-          }`}
+      {/* Manual input — always visible */}
+      <form onSubmit={handleManualSubmit} className="flex w-full gap-2">
+        <input
+          type="text"
+          inputMode="numeric"
+          value={manualInput}
+          onChange={(e) => setManualInput(e.target.value)}
+          placeholder="学籍番号を手動入力"
+          className="flex-1 rounded-lg border border-gray-600 bg-gray-800 px-3 py-2 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-white/40"
+        />
+        <button
+          type="submit"
+          className="rounded-lg bg-white px-4 py-2 font-bold text-black"
         >
-          <p className="text-4xl mb-2">{result.isPresent ? "🟢" : "🔴"}</p>
-          <p className="text-2xl font-bold">{result.name}</p>
-          <p className="text-lg mt-1">
-            {result.isPresent ? "在室しました" : "退室しました"}
-          </p>
-        </div>
-      )}
+          送信
+        </button>
+      </form>
 
-      {scanError === "not_found" && (
-        <div className="w-full rounded-xl p-6 text-center bg-yellow-500 text-white">
-          <p className="text-4xl mb-2">⚠️</p>
-          <p className="text-xl font-bold">学生証が見つかりません</p>
-          <p className="text-sm mt-1">先にWebサイトでログインが必要です</p>
-        </div>
-      )}
-
-      {scanError === "error" && (
-        <div className="w-full rounded-xl p-6 text-center bg-gray-700 text-white">
-          <p className="text-4xl mb-2">❌</p>
-          <p className="text-xl font-bold">エラーが発生しました</p>
-          <p className="text-sm mt-1">もう一度試してください</p>
+      {/* Feedback popup overlay */}
+      {(result || scanError) && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center pointer-events-none">
+          <div
+            className={`rounded-2xl px-12 py-8 text-center shadow-2xl animate-in fade-in zoom-in-95 duration-200 ${
+              result
+                ? result.isPresent
+                  ? "bg-green-500 text-white"
+                  : "bg-red-500 text-white"
+                : scanError === "not_found"
+                ? "bg-yellow-500 text-white"
+                : "bg-gray-700 text-white"
+            }`}
+          >
+            {result && (
+              <>
+                <p className="text-6xl mb-3">
+                  <FontAwesomeIcon icon={result.isPresent ? faArrowRightToBracket : faArrowRightFromBracket} />
+                </p>
+                <p className="text-3xl font-bold">{result.name}</p>
+                <p className="text-xl mt-2">
+                  {result.isPresent ? "入室しました" : "退室しました"}
+                </p>
+              </>
+            )}
+            {scanError === "not_found" && (
+              <>
+                <p className="text-6xl mb-3">
+                  <FontAwesomeIcon icon={faTriangleExclamation} />
+                </p>
+                <p className="text-2xl font-bold">学生証が見つかりません</p>
+                <p className="text-sm mt-2">先にWebサイトでログインが必要です</p>
+              </>
+            )}
+            {scanError === "error" && (
+              <>
+                <p className="text-6xl mb-3">
+                  <FontAwesomeIcon icon={faCircleXmark} />
+                </p>
+                <p className="text-2xl font-bold">エラーが発生しました</p>
+                <p className="text-sm mt-2">もう一度試してください</p>
+              </>
+            )}
+          </div>
         </div>
       )}
     </div>

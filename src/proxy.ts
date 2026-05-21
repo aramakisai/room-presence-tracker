@@ -36,8 +36,8 @@ export default auth((req) => {
     return NextResponse.next();
   }
 
-  // Kiosk accounts: redirect to /kiosk
-  if (isKiosk && !nextUrl.pathname.startsWith("/kiosk")) {
+  // Kiosk accounts: redirect to /kiosk (but let API calls through — they do their own auth)
+  if (isKiosk && !nextUrl.pathname.startsWith("/kiosk") && !nextUrl.pathname.startsWith("/api")) {
     return NextResponse.redirect(new URL("/kiosk", nextUrl));
   }
 

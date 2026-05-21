@@ -7,6 +7,8 @@ import { PresenceList } from "@/components/PresenceList";
 import { ToggleButton } from "@/components/ToggleButton";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { faArrowRightToBracket, faArrowRightFromBracket } from "@fortawesome/free-solid-svg-icons";
 
 export default async function PresencePage() {
   const session = await auth();
@@ -54,7 +56,17 @@ export default async function PresencePage() {
             <span
               className={user.isPresent ? "text-green-600" : "text-red-500"}
             >
-              {user.isPresent ? "🟢 在室中" : "🔴 退室中"}
+              {user.isPresent ? (
+              <>
+                <FontAwesomeIcon icon={faArrowRightToBracket} className="mr-1" />
+                在室中
+              </>
+            ) : (
+              <>
+                <FontAwesomeIcon icon={faArrowRightFromBracket} className="mr-1" />
+                退室中
+              </>
+            )}
             </span>
           </p>
           <ToggleButton initialIsPresent={user.isPresent} />
