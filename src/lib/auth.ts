@@ -27,7 +27,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       // Request extra scopes for custom claims
       authorization: {
         params: {
-          scope: "openid email profile",
+          scope: "openid email profile student_id discord groups",
         },
       },
     },
@@ -42,7 +42,12 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
 
       // Extract custom Authentik claims
       const studentId = (profile.student_id as string | undefined) ?? null;
-      const discordId = (profile.discord_id as string | undefined) ?? null;
+      // Authentik stores Discord info as a nested object in the `discord` attribute,
+      // e.g. { id: "541454672179757066", nick: "...", username: "...", ... }
+      const discordAttr = profile.discord as
+        | { id?: string; nick?: string; username?: string; avatar_url?: string; global_name?: string }
+        | undefined;
+      const discordId = discordAttr?.id ?? null;
       const groups = (profile.groups as string[] | undefined) ?? [];
       const isKiosk = groups.includes("kiosk");
 

@@ -25,6 +25,8 @@ services:
       POSTGRES_USER: presence
       POSTGRES_PASSWORD: presence
       POSTGRES_DB: presence
+    ports:
+      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:

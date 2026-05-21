@@ -1,30 +1,44 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback } from "react";
-import { BrowserMultiFormatReader } from "@zxing/browser";
+import { BrowserMultiFormatReader, BrowserCodeReader } from "@zxing/browser";
 import type { IScannerControls } from "@zxing/browser";
-import { NotFoundException } from "@zxing/library";
+import { DecodeHintType, BarcodeFormat, NotFoundException } from "@zxing/library";
 
-type ScanResult = {
-  name: string;
-  isPresent: boolean;
-} | null;
+// Module-level hints — stable across renders
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const hints = new Map<DecodeHintType, any>([
+  [DecodeHintType.POSSIBLE_FORMATS, [BarcodeFormat.CODE_39]],
+  [DecodeHintType.TRY_HARDER, true],
+]);
 
+const COOLDOWN_MS = 2500;
+const PREPROCESS_INTERVAL_MS = 200; // preprocessing scan: 5 fps
+
+type ScanResult = { name: string; isPresent: boolean } | null;
 type ScanError = "not_found" | "error" | null;
 
 export function BarcodeScanner() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const controlsRef = useRef<IScannerControls | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
   const [scanning, setScanning] = useState(false);
+  const [torchOn, setTorchOn] = useState(false);
+  const [torchAvailable, setTorchAvailable] = useState(false);
+  const [showManual, setShowManual] = useState(false);
+  const [manualInput, setManualInput] = useState("");
   const [result, setResult] = useState<ScanResult>(null);
   const [scanError, setScanError] = useState<ScanError>(null);
-  const [lastScanned, setLastScanned] = useState<string | null>(null);
-  const cooldownRef = useRef(false);
 
+  // Refs prevent useEffect restarts on every scan
+  const cooldownRef = useRef(false);
+  const lastScannedRef = useRef<string | null>(null);
+
+  // Stable function — reads only refs, no state deps
   const handleScannedCode = useCallback(async (studentId: string) => {
-    if (cooldownRef.current || studentId === lastScanned) return;
+    if (cooldownRef.current || studentId === lastScannedRef.current) return;
     cooldownRef.current = true;
-    setLastScanned(studentId);
+    lastScannedRef.current = studentId;
     setScanError(null);
 
     try {
@@ -33,7 +47,6 @@ export function BarcodeScanner() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ studentId }),
       });
-
       if (res.status === 404) {
         setScanError("not_found");
         setResult(null);
@@ -50,27 +63,42 @@ export function BarcodeScanner() {
       setResult(null);
     }
 
-    // Reset after 2.5 seconds
     setTimeout(() => {
       cooldownRef.current = false;
       setResult(null);
       setScanError(null);
-      setLastScanned(null);
-    }, 2500);
-  }, [lastScanned]);
+      lastScannedRef.current = null;
+    }, COOLDOWN_MS);
+  }, []); // no state deps → stable reference
+
+  const toggleTorch = useCallback(async () => {
+    const stream = streamRef.current;
+    if (!stream) return;
+    const track = stream.getVideoTracks()[0];
+    const next = !torchOn;
+    try {
+      await BrowserCodeReader.mediaStreamSetTorch(track, next);
+      setTorchOn(next);
+    } catch {
+      // torch not supported despite capability check
+    }
+  }, [torchOn]);
 
   useEffect(() => {
-    if (!videoRef.current) return;
-    const reader = new BrowserMultiFormatReader();
+    const video = videoRef.current;
+    if (!video) return;
+
+    // Use ZXing's own camera setup — more reliable than manual getUserMedia
+    const reader = new BrowserMultiFormatReader(hints);
     let active = true;
+    let preprocessInterval: ReturnType<typeof setInterval> | null = null;
 
     reader
-      .decodeFromVideoDevice(undefined, videoRef.current, (result, err) => {
+      .decodeFromVideoDevice(undefined, video, (res, err) => {
         if (!active) return;
-        if (result) {
-          handleScannedCode(result.getText());
-        } else if (err && !(err instanceof NotFoundException)) {
-          // Ignore NotFoundException (no barcode in frame) — it fires continuously
+        if (res) handleScannedCode(res.getText());
+        else if (err && !(err instanceof NotFoundException)) {
+          // Unexpected decode error — NotFoundException is normal (no barcode in frame)
         }
       })
       .then((controls) => {
@@ -80,17 +108,75 @@ export function BarcodeScanner() {
         }
         controlsRef.current = controls;
         setScanning(true);
+
+        // Grab the stream ZXing started for torch support
+        const stream = video.srcObject as MediaStream | null;
+        if (stream) {
+          streamRef.current = stream;
+          setTorchAvailable(BrowserCodeReader.mediaStreamIsTorchCompatible(stream));
+        }
+
+        // --- Parallel preprocessing scan loop ---
+        // ZXing's loop uses the raw frame.
+        // This loop applies contrast enhancement before decoding,
+        // which helps with faded/low-contrast barcodes on student IDs.
+        const canvas = document.createElement("canvas");
+        const ctx = canvas.getContext("2d", { willReadFrequently: true })!;
+
+        preprocessInterval = setInterval(() => {
+          if (!active || video.readyState < /* HAVE_ENOUGH_DATA */ 4) return;
+
+          // Lazily set canvas dimensions once real video dimensions are available
+          const vw = video.videoWidth;
+          const vh = video.videoHeight;
+          if (!vw || !vh) return;
+          if (canvas.width !== vw || canvas.height !== vh) {
+            canvas.width = vw;
+            canvas.height = vh;
+          }
+
+          // Draw with contrast/brightness boost to help ZXing binarize blurry barcodes
+          ctx.filter = "grayscale(100%) contrast(200%) brightness(110%)";
+          ctx.drawImage(video, 0, 0);
+          ctx.filter = "none";
+
+          try {
+            const res = reader.decodeFromCanvas(canvas);
+            if (active) handleScannedCode(res.getText());
+          } catch (e) {
+            if (!(e instanceof NotFoundException)) {
+              console.error("preprocess scan error:", e);
+            }
+          }
+        }, PREPROCESS_INTERVAL_MS);
       })
       .catch(() => {
-        // Camera access failed
+        // Camera access denied or unavailable
       });
 
     return () => {
       active = false;
+      if (preprocessInterval) clearInterval(preprocessInterval);
       controlsRef.current?.stop();
+      controlsRef.current = null;
+      streamRef.current = null;
       setScanning(false);
+      setTorchOn(false);
     };
-  }, [handleScannedCode]);
+  }, [handleScannedCode]); // handleScannedCode is stable → runs once
+
+  const handleManualSubmit = useCallback(
+    (e: React.FormEvent) => {
+      e.preventDefault();
+      const id = manualInput.trim();
+      if (id) {
+        handleScannedCode(id);
+        setManualInput("");
+        setShowManual(false);
+      }
+    },
+    [manualInput, handleScannedCode]
+  );
 
   return (
     <div className="flex flex-col items-center gap-6 w-full max-w-lg mx-auto">
@@ -103,10 +189,23 @@ export function BarcodeScanner() {
           autoPlay
           playsInline
         />
-        {/* Scan overlay */}
+
+        {/* Scan guide overlay */}
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
           <div className="w-3/4 h-1/3 border-2 border-white/60 rounded-md" />
         </div>
+
+        {/* Torch toggle (shows only when device supports it) */}
+        {torchAvailable && (
+          <button
+            onClick={toggleTorch}
+            className="absolute bottom-3 right-3 rounded-full bg-black/60 px-3 py-1.5 text-sm text-white backdrop-blur"
+            aria-label={torchOn ? "ライトをOFFにする" : "ライトをONにする"}
+          >
+            {torchOn ? "🔦 ON" : "🔦 OFF"}
+          </button>
+        )}
+
         {!scanning && (
           <div className="absolute inset-0 flex items-center justify-center bg-black/50">
             <p className="text-white text-sm">カメラを起動中…</p>
@@ -118,13 +217,39 @@ export function BarcodeScanner() {
         学生証のバーコードをカメラにかざしてください
       </p>
 
+      {/* Manual input fallback */}
+      <button
+        onClick={() => setShowManual((v) => !v)}
+        className="text-xs text-gray-500 underline underline-offset-2"
+      >
+        読み取れない場合は手動入力
+      </button>
+
+      {showManual && (
+        <form onSubmit={handleManualSubmit} className="flex w-full gap-2">
+          <input
+            type="text"
+            inputMode="numeric"
+            value={manualInput}
+            onChange={(e) => setManualInput(e.target.value)}
+            placeholder="学籍番号を入力"
+            className="flex-1 rounded-lg border border-gray-600 bg-gray-800 px-3 py-2 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-white/40"
+            autoFocus
+          />
+          <button
+            type="submit"
+            className="rounded-lg bg-white px-4 py-2 font-bold text-black"
+          >
+            送信
+          </button>
+        </form>
+      )}
+
       {/* Feedback */}
       {result && (
         <div
           className={`w-full rounded-xl p-6 text-center transition-all ${
-            result.isPresent
-              ? "bg-green-500 text-white"
-              : "bg-red-500 text-white"
+            result.isPresent ? "bg-green-500 text-white" : "bg-red-500 text-white"
           }`}
         >
           <p className="text-4xl mb-2">{result.isPresent ? "🟢" : "🔴"}</p>
