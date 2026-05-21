@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "room-presence.fullname" . }}-config
+  labels:
+    {{- include "room-presence.labels" . | nindent 4 }}
+data:
+  {{- toYaml .Values.app.config | nindent 2 }}

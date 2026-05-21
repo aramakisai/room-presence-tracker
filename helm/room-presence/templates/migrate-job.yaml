@@ -1,0 +1,33 @@
+{{- if .Values.migration.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "room-presence.fullname" . }}-migrate
+  labels:
+    {{- include "room-presence.labels" . | nindent 4 }}
+  annotations:
+    # Helm のデプロイ前に自動実行される
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-1"
+    # 前回の成功 Job は削除してから新しく作る
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  ttlSecondsAfterFinished: 600
+  backoffLimit: 3
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: migrate
+          image: {{ include "room-presence.migrateImage" . }}
+          imagePullPolicy: {{ .Values.migrate.image.pullPolicy }}
+          env:
+            # CloudNativePG が生成する Secret から DATABASE_URL を取得
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.cnpg.secretName }}
+                  key: uri
+          resources:
+            {{- toYaml .Values.migration.resources | nindent 12 }}
+{{- end }}

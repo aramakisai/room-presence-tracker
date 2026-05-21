@@ -1,0 +1,74 @@
+# ---------------------------------------------------------------
+# イメージ設定
+# ---------------------------------------------------------------
+image:
+  repository: ghcr.io/your-org/room-presence-tracker
+  pullPolicy: IfNotPresent
+  # 省略時は Chart.AppVersion を使用
+  tag: ""
+
+migrate:
+  image:
+    repository: ghcr.io/your-org/room-presence-tracker-migrate
+    pullPolicy: IfNotPresent
+    tag: ""
+
+# ---------------------------------------------------------------
+# CloudNativePG — クラスターはここでは管理しない
+# 既存クラスターが自動生成する Secret 名だけを指定する
+#
+# Secret の形式: {cluster-name}-app
+# Secret に含まれるキー: uri, username, password, dbname, host, port
+# ---------------------------------------------------------------
+cnpg:
+  secretName: "presence-db-app"
+
+# ---------------------------------------------------------------
+# アプリケーション Secret / ConfigMap
+# Secret は Helm 外で事前に作成しておくこと (機密情報のため)
+#   kubectl create secret generic presence-secrets \
+#     --from-literal=AUTH_SECRET=... \
+#     --from-literal=AUTHENTIK_CLIENT_SECRET=... \
+#     --from-literal=RESET_SECRET=... \
+#     --from-literal=DISCORD_BOT_TOKEN=...
+# ---------------------------------------------------------------
+app:
+  secretName: "presence-secrets"
+
+  # 非機密の設定値 (ConfigMap として Helm が管理)
+  config:
+    AUTHENTIK_ISSUER: "https://your-authentik-domain/application/o/room-presence/"
+    AUTHENTIK_CLIENT_ID: "your-client-id"
+    DISCORD_APPLICATION_ID: "your-discord-app-id"
+    DISCORD_PUBLIC_KEY: "your-discord-public-key"
+    NEXT_PUBLIC_APP_URL: "https://your-app-domain"
+
+# ---------------------------------------------------------------
+# Deployment
+# ---------------------------------------------------------------
+replicaCount: 1
+
+service:
+  type: ClusterIP
+  port: 3000
+
+resources:
+  requests:
+    cpu: "100m"
+    memory: "256Mi"
+  limits:
+    cpu: "500m"
+    memory: "512Mi"
+
+# ---------------------------------------------------------------
+# マイグレーション Job (Helm hook: pre-install / pre-upgrade)
+# ---------------------------------------------------------------
+migration:
+  enabled: true
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "128Mi"
+    limits:
+      cpu: "500m"
+      memory: "256Mi"

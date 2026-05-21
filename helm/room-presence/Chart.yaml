@@ -1,0 +1,6 @@
+apiVersion: v2
+name: room-presence
+description: Room Presence Tracker — Next.js app with CloudNativePG support
+type: application
+version: 0.1.0
+appVersion: "1.0.0"

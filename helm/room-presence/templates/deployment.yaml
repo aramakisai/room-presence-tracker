@@ -1,0 +1,95 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "room-presence.fullname" . }}
+  labels:
+    {{- include "room-presence.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "room-presence.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "room-presence.selectorLabels" . | nindent 8 }}
+    spec:
+      containers:
+        - name: app
+          image: {{ include "room-presence.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - containerPort: 3000
+              protocol: TCP
+          env:
+            # CloudNativePG が生成する Secret から DATABASE_URL を取得
+            # Secret 名は values.yaml の cnpg.secretName で設定
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.cnpg.secretName }}
+                  key: uri
+
+            # アプリ固有の機密情報 (Helm 外で事前作成した Secret)
+            - name: AUTH_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.app.secretName }}
+                  key: AUTH_SECRET
+            - name: AUTHENTIK_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.app.secretName }}
+                  key: AUTHENTIK_CLIENT_SECRET
+            - name: RESET_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.app.secretName }}
+                  key: RESET_SECRET
+            - name: DISCORD_BOT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.app.secretName }}
+                  key: DISCORD_BOT_TOKEN
+
+            # 非機密設定値 (ConfigMap)
+            - name: AUTHENTIK_ISSUER
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "room-presence.fullname" . }}-config
+                  key: AUTHENTIK_ISSUER
+            - name: AUTHENTIK_CLIENT_ID
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "room-presence.fullname" . }}-config
+                  key: AUTHENTIK_CLIENT_ID
+            - name: DISCORD_APPLICATION_ID
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "room-presence.fullname" . }}-config
+                  key: DISCORD_APPLICATION_ID
+            - name: DISCORD_PUBLIC_KEY
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "room-presence.fullname" . }}-config
+                  key: DISCORD_PUBLIC_KEY
+            - name: NEXT_PUBLIC_APP_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "room-presence.fullname" . }}-config
+                  key: NEXT_PUBLIC_APP_URL
+
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: 3000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: 3000
+            initialDelaySeconds: 30
+            periodSeconds: 30
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}

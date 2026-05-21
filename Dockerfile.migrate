@@ -1,0 +1,19 @@
+# Drizzle マイグレーション専用イメージ
+# アプリ本体の Dockerfile (standalone) には drizzle-kit が含まれないため分離
+FROM node:20-alpine
+
+WORKDIR /app
+
+# 依存関係のインストール
+COPY package.json package-lock.json ./
+RUN npm ci
+
+# Drizzle 設定とスキーマのコピー
+COPY drizzle.config.ts tsconfig.json ./
+COPY src/lib/db ./src/lib/db
+
+# 生成済みマイグレーションファイルのコピー
+# (npm run db:generate で事前生成しておくこと)
+COPY drizzle ./drizzle
+
+CMD ["npm", "run", "db:migrate"]
