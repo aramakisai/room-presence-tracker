@@ -3,6 +3,12 @@ import { db } from "@/lib/db";
 import { users } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 
+// OAuth redirect_uri 構築用。未設定だと 0.0.0.0:3000 (Node bind address) が
+// 使われてしまい、Authentikログイン後のリダイレクトが壊れる
+if (!process.env.AUTH_URL && process.env.NEXT_PUBLIC_APP_URL) {
+  process.env.AUTH_URL = process.env.NEXT_PUBLIC_APP_URL;
+}
+
 // Extend the built-in session types
 declare module "next-auth" {
   interface Session {
