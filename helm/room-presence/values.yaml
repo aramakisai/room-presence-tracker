@@ -29,6 +29,7 @@ cnpg:
 #   kubectl create secret generic presence-secrets \
 #     --from-literal=AUTH_SECRET=... \
 #     --from-literal=AUTHENTIK_CLIENT_SECRET=... \
+#     --from-literal=AUTHENTIK_API_TOKEN=... \
 #     --from-literal=RESET_SECRET=... \
 #     --from-literal=DISCORD_BOT_TOKEN=...
 # ---------------------------------------------------------------

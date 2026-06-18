@@ -41,6 +41,11 @@ spec:
                 secretKeyRef:
                   name: {{ .Values.app.secretName }}
                   key: AUTHENTIK_CLIENT_SECRET
+            - name: AUTHENTIK_API_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.app.secretName }}
+                  key: AUTHENTIK_API_TOKEN
             - name: RESET_SECRET
               valueFrom:
                 secretKeyRef:
