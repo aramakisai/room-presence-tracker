@@ -67,23 +67,27 @@ npm run dev
 
 ### 2. カスタム Property Mapping（OIDC）
 
-Authentik の **Property Mappings** で以下を作成してプロバイダーに追加:
+Authentik の **Property Mappings** で以下を作成してプロバイダーに追加。
 
-**student_id** マッピング:
+**注意**: スコープマッピングの戻り値は必ず `dict` にする。`dict` 以外を返すと authentik 側で
+`Scope returned a non-dict value, ignoring` という警告を出して claim を黒消しにする（`isinstance(value, dict)` チェックがあるため）。
+
+**student_id** マッピング（scope_name: `student_id`）:
 ```python
-return request.user.attributes.get("student_id", None)
+return {"student_id": request.user.attributes.get("student_id")}
 ```
 
-**discord_id** マッピング（Discord OAuthソース連携後）:
+**discord** マッピング（scope_name: `discord`、ユーザー属性 `discord` に `{id, username, global_name, avatar_url}` を事前に入れておく）:
 ```python
-social = request.user.socialaccount_set.filter(provider="discord").first()
-return social.uid if social else None
+return {"discord": request.user.attributes.get("discord")}
 ```
 
-**groups** マッピング:
+**groups** マッピング（scope_name: `groups`）:
 ```python
-return [g.name for g in request.user.ak_groups.all()]
+return {"groups": [g.name for g in request.user.groups.all()]}
 ```
+
+ローカルで同じ構成を自動構築する `blueprints/sample-data.yaml` も参照（[ローカル検証用 Authentik](#5-ローカル検証用-authentikサンプルデータ)）。
 
 ### 3. キオスクアカウント作成
 
@@ -95,6 +99,38 @@ return [g.name for g in request.user.ak_groups.all()]
 
 1. Authentik > **Directory > Federation & Social login** で Discord ソースを追加
 2. ユーザーがAuthentikにDiscordアカウントをリンクすると `/toggle` コマンドが使用可能になる
+
+### 5. ローカル検証用 Authentik（サンプルデータ）
+
+本物のAuthentikを実機なしで検証したい場合、サンプルユーザー入りの使い捨てAuthentikを `docker-compose.authentik.yml` で起動できる。`blueprints/sample-data.yaml` が起動時に自動投入する内容:
+
+- グループ `kiosk`
+- ユーザー `yamada` / `suzuki`（`student_id`, `discord` attributeあり） / `kiosk-001`（`kiosk`グループ所属）
+- OAuth2/OIDC Provider + Application（スラッグ `room-presence-tracker`）、`student_id` / `discord` / `groups` カスタムスコープも設定済み
+- `src/lib/authentik.ts` 用APIトークン（akadminに紐付け）
+
+```bash
+# 1. 環境変数を用意
+cp .env.authentik.example .env.authentik
+
+# 2. Authentik起動（初回はDBマイグレーション+blueprint投入で1〜2分かかる）
+docker compose -f docker-compose.authentik.yml --env-file .env.authentik up -d
+
+# 3. http://localhost:9000 で akadmin / .env.authentik の AUTHENTIK_BOOTSTRAP_PASSWORD でログイン確認可能
+
+# 4. アプリ側 .env.local に以下を設定（値は .env.authentik と合わせる）
+# AUTHENTIK_ISSUER=http://localhost:9000/application/o/room-presence-tracker/
+# AUTHENTIK_CLIENT_ID=<.env.authentik の DEV_AUTHENTIK_CLIENT_ID>
+# AUTHENTIK_CLIENT_SECRET=<.env.authentik の DEV_AUTHENTIK_CLIENT_SECRET>
+# AUTHENTIK_API_TOKEN=<.env.authentik の DEV_AUTHENTIK_API_TOKEN>
+
+# 5. 後片付け（DBごと削除）
+docker compose -f docker-compose.authentik.yml down -v
+```
+
+検証用なので `.gitignore` の `.env*` ルールにより `.env.authentik` / `.env.authentik.example` ともにgit管理外。チームで共有する場合は別途リポジトリへの追加を検討する。
+
+LDAPのサンプルデータ単体で検証したい場合（Authentikを介さない素のLDAP動作確認）は `rroemhild/test-openldap` などの既成イメージを使う方法もあるが、本プロジェクトはAuthentikのREST/OIDC経由でしかユーザー情報を取得しないため、上記のAuthentikスタックでの検証を推奨。
 
 ---
 

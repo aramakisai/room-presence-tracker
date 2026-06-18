@@ -1,0 +1,76 @@
+# 実験用: LDAP/OIDCサンプルデータ入りのAuthentikをローカルに起動する検証スタック
+# 使い方は README.md の「ローカル検証用 Authentik」を参照
+services:
+  authentik-postgresql:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: authentik
+      POSTGRES_PASSWORD: ${AUTHENTIK_PG_PASSWORD:-authentik}
+      POSTGRES_DB: authentik
+    volumes:
+      - authentik_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U authentik -d authentik"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  authentik-redis:
+    image: redis:alpine
+    volumes:
+      - authentik_redis_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping | grep PONG"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  authentik-server:
+    image: ghcr.io/goauthentik/server:2026.5.3
+    command: server
+    environment: &authentik-env
+      AUTHENTIK_SECRET_KEY: ${AUTHENTIK_SECRET_KEY:-dev-secret-key-change-me-1234567890}
+      AUTHENTIK_POSTGRESQL__HOST: authentik-postgresql
+      AUTHENTIK_POSTGRESQL__USER: authentik
+      AUTHENTIK_POSTGRESQL__NAME: authentik
+      AUTHENTIK_POSTGRESQL__PASSWORD: ${AUTHENTIK_PG_PASSWORD:-authentik}
+      AUTHENTIK_REDIS__HOST: authentik-redis
+      AUTHENTIK_BOOTSTRAP_EMAIL: ${AUTHENTIK_BOOTSTRAP_EMAIL:-admin@example.com}
+      AUTHENTIK_BOOTSTRAP_PASSWORD: ${AUTHENTIK_BOOTSTRAP_PASSWORD:-adminpassword}
+      AUTHENTIK_BOOTSTRAP_TOKEN: ${AUTHENTIK_BOOTSTRAP_TOKEN:-dev-bootstrap-token}
+      DEV_AUTHENTIK_CLIENT_ID: ${DEV_AUTHENTIK_CLIENT_ID:-dev-client-id-room-presence}
+      DEV_AUTHENTIK_CLIENT_SECRET: ${DEV_AUTHENTIK_CLIENT_SECRET:-dev-client-secret-room-presence-CHANGE-ME}
+      DEV_AUTHENTIK_API_TOKEN: ${DEV_AUTHENTIK_API_TOKEN:-dev-api-token-room-presence-CHANGE-ME}
+      DEV_SAMPLE_PASSWORD: ${DEV_SAMPLE_PASSWORD:-password1234}
+    volumes:
+      - authentik_media:/media
+      - ./blueprints:/blueprints/custom
+    ports:
+      - "9000:9000"
+    depends_on:
+      authentik-postgresql:
+        condition: service_healthy
+      authentik-redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  authentik-worker:
+    image: ghcr.io/goauthentik/server:2026.5.3
+    command: worker
+    environment: *authentik-env
+    volumes:
+      - authentik_media:/media
+      - ./blueprints:/blueprints/custom
+    depends_on:
+      authentik-postgresql:
+        condition: service_healthy
+      authentik-redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  authentik_postgres_data:
+  authentik_redis_data:
+  authentik_media:
